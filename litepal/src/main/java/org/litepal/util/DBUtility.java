@@ -24,8 +24,10 @@ import org.litepal.exceptions.DatabaseGenerateException;
 import org.litepal.tablemanager.model.ColumnModel;
 import org.litepal.tablemanager.model.TableModel;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,7 +51,7 @@ public class DBUtility {
 
     private static final String REG_FUZZY = "\\s+(not\\s+)?(like|between)\\s+";
 
-    private static final String REG_COLLECTION = "\\s+(not\\s+)?(in|exists)\\s*\\(";
+    private static final String REG_COLLECTION = "\\s+(not\\s+)?(in)\\s*\\(";
 
     /**
 	 * Disable to create an instance of DBUtility.
@@ -107,7 +109,7 @@ public class DBUtility {
 	 */
 	public static String getTableNameByForeignColumn(String foreignColumnName) {
 		if (!TextUtils.isEmpty(foreignColumnName)) {
-			if (foreignColumnName.toLowerCase().endsWith("_id")) {
+			if (foreignColumnName.toLowerCase(Locale.US).endsWith("_id")) {
 				return foreignColumnName.substring(0, foreignColumnName.length() - "_id".length());
 			}
 			return null;
@@ -128,16 +130,16 @@ public class DBUtility {
 	 *         name or associated table name is null of empty, return null.
 	 */
 	public static String getIntermediateTableName(String tableName, String associatedTableName) {
-		if (!(TextUtils.isEmpty(tableName) || TextUtils.isEmpty(associatedTableName))) {
-			String intermediateTableName;
-			if (tableName.toLowerCase().compareTo(associatedTableName.toLowerCase()) <= 0) {
-				intermediateTableName = tableName + "_" + associatedTableName;
-			} else {
-				intermediateTableName = associatedTableName + "_" + tableName;
-			}
-			return intermediateTableName;
-		}
-		return null;
+        if (!(TextUtils.isEmpty(tableName) || TextUtils.isEmpty(associatedTableName))) {
+            String intermediateTableName;
+            if (tableName.toLowerCase(Locale.US).compareTo(associatedTableName.toLowerCase(Locale.US)) <= 0) {
+                intermediateTableName = tableName + "_" + associatedTableName;
+            } else {
+                intermediateTableName = associatedTableName + "_" + tableName;
+            }
+            return intermediateTableName;
+        }
+        return null;
 	}
 
     /**
@@ -163,6 +165,10 @@ public class DBUtility {
      */
     public static String getGenericValueIdColumnName(String className) {
         return BaseUtility.changeCase(getTableNameByClassName(className) + "_id");
+    }
+
+    public static String getM2MSelfRefColumnName(Field field) {
+        return BaseUtility.changeCase(field.getName() + "_id");
     }
 
 	/**
@@ -450,7 +456,7 @@ public class DBUtility {
      */
     public static boolean isFieldNameConflictWithSQLiteKeywords(String fieldName) {
         if (!TextUtils.isEmpty(fieldName)) {
-            String fieldNameWithComma = "," + fieldName.toLowerCase() + ",";
+            String fieldNameWithComma = "," + fieldName.toLowerCase(Locale.US) + ",";
             if (SQLITE_KEYWORDS.contains(fieldNameWithComma)) {
                 return true;
             }
@@ -479,21 +485,23 @@ public class DBUtility {
      * @return Converted where clause with valid column names.
      */
     public static String convertWhereClauseToColumnName(String whereClause) {
-        try {
-            StringBuffer convertedWhereClause = new StringBuffer();
-            Pattern p = Pattern.compile("(\\w+" + REG_OPERATOR + "|\\w+" + REG_FUZZY + "|\\w+" + REG_COLLECTION + ")");
-            Matcher m = p.matcher(whereClause);
-            while (m.find()) {
-                String matches = m.group();
-                String column = matches.replaceAll("(" + REG_OPERATOR + "|" + REG_FUZZY + "|" + REG_COLLECTION + ")", "");
-                String rest = matches.replace(column, "");
-                column = convertToValidColumnName(column);
-                m.appendReplacement(convertedWhereClause, column + rest);
+        if (!TextUtils.isEmpty(whereClause)) {
+            try {
+                StringBuffer convertedWhereClause = new StringBuffer();
+                Pattern p = Pattern.compile("(\\w+" + REG_OPERATOR + "|\\w+" + REG_FUZZY + "|\\w+" + REG_COLLECTION + ")");
+                Matcher m = p.matcher(whereClause);
+                while (m.find()) {
+                    String matches = m.group();
+                    String column = matches.replaceAll("(" + REG_OPERATOR + "|" + REG_FUZZY + "|" + REG_COLLECTION + ")", "");
+                    String rest = matches.replace(column, "");
+                    column = convertToValidColumnName(column);
+                    m.appendReplacement(convertedWhereClause, column + rest);
+                }
+                m.appendTail(convertedWhereClause);
+                return convertedWhereClause.toString();
+            } catch (Exception e) {
+                e.printStackTrace();
             }
-            m.appendTail(convertedWhereClause);
-            return convertedWhereClause.toString();
-        } catch (Exception e) {
-            e.printStackTrace();
         }
         return whereClause;
     }
@@ -525,7 +533,7 @@ public class DBUtility {
      */
     public static String convertOrderByClauseToValidName(String orderBy) {
         if (!TextUtils.isEmpty(orderBy)) {
-            orderBy = orderBy.trim().toLowerCase();
+            orderBy = orderBy.trim().toLowerCase(Locale.US);
             if (orderBy.contains(",")) {
                 String[] orderByItems = orderBy.split(",");
                 StringBuilder builder = new StringBuilder();

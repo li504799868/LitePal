@@ -21,14 +21,17 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.util.SparseArray;
 
+import org.litepal.LitePal;
 import org.litepal.LitePalBase;
+import org.litepal.annotation.Encrypt;
 import org.litepal.crud.model.AssociationsInfo;
-import org.litepal.exceptions.DataSupportException;
 import org.litepal.exceptions.DatabaseGenerateException;
+import org.litepal.exceptions.LitePalSupportException;
 import org.litepal.tablemanager.model.GenericModel;
 import org.litepal.util.BaseUtility;
 import org.litepal.util.Const;
 import org.litepal.util.DBUtility;
+import org.litepal.util.cipher.CipherUtil;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -64,7 +67,7 @@ abstract class DataHandler extends LitePalBase {
 	 * Store empty model instance. In case to create each time when checking
 	 * field is with default value or not.
 	 */
-	private DataSupport tempEmptyModel;
+	private LitePalSupport tempEmptyModel;
 
 	/**
 	 * Holds the AssociationsInfo which foreign keys in the current model.
@@ -134,12 +137,12 @@ abstract class DataHandler extends LitePalBase {
                 Map<Field, GenericModel> genericModelMap = new HashMap<Field, GenericModel>();
 				do {
 					T modelInstance = (T) createInstanceFromClass(modelClass);
-					giveBaseObjIdValue((DataSupport) modelInstance,
+					giveBaseObjIdValue((LitePalSupport) modelInstance,
 							cursor.getLong(cursor.getColumnIndexOrThrow("id")));
 					setValueToModel(modelInstance, supportedFields, foreignKeyAssociations, cursor, queryInfoCacheSparseArray);
-                    setGenericValueToModel((DataSupport) modelInstance, supportedGenericFields, genericModelMap);
+                    setGenericValueToModel((LitePalSupport) modelInstance, supportedGenericFields, genericModelMap);
 					if (foreignKeyAssociations != null) {
-						setAssociatedModel((DataSupport) modelInstance);
+						setAssociatedModel((LitePalSupport) modelInstance);
 					}
 					dataList.add(modelInstance);
 				} while (cursor.moveToNext());
@@ -148,7 +151,7 @@ abstract class DataHandler extends LitePalBase {
 			}
 			return dataList;
 		} catch (Exception e) {
-			throw new DataSupportException(e.getMessage(), e);
+			throw new LitePalSupportException(e.getMessage(), e);
 		} finally {
 			if (cursor != null) {
 				cursor.close();
@@ -186,7 +189,7 @@ abstract class DataHandler extends LitePalBase {
 				result = (T) method.invoke(cursor, 0);
 			}
 		} catch (Exception e) {
-			throw new DataSupportException(e.getMessage(), e);
+			throw new LitePalSupportException(e.getMessage(), e);
 		} finally {
 			if (cursor != null) {
 				cursor.close();
@@ -196,7 +199,7 @@ abstract class DataHandler extends LitePalBase {
 	}
 
 	/**
-	 * Assign the generated id value to {@link DataSupport#baseObjId}. This
+	 * Assign the generated id value to {@link LitePalSupport#baseObjId}. This
 	 * value will be used as identify of this model for system use.
 	 * 
 	 * @param baseObj
@@ -204,16 +207,16 @@ abstract class DataHandler extends LitePalBase {
 	 * @param id
 	 *            The value of id.
 	 */
-	protected void giveBaseObjIdValue(DataSupport baseObj, long id) throws SecurityException,
+	protected void giveBaseObjIdValue(LitePalSupport baseObj, long id) throws SecurityException,
 			NoSuchFieldException, IllegalArgumentException, IllegalAccessException {
 		if (id > 0) {
-			DynamicExecutor.set(baseObj, "baseObjId", id, DataSupport.class);
+			DynamicExecutor.set(baseObj, "baseObjId", id, LitePalSupport.class);
 		}
 	}
 
 	/**
 	 * Iterate all the fields passed in. Each field calls
-	 * {@link #putFieldsValueDependsOnSaveOrUpdate(DataSupport, java.lang.reflect.Field, android.content.ContentValues)}
+	 * {@link #putFieldsValueDependsOnSaveOrUpdate(LitePalSupport, java.lang.reflect.Field, android.content.ContentValues)}
 	 * if it's not id field.
 	 * 
 	 * @param baseObj
@@ -228,8 +231,8 @@ abstract class DataHandler extends LitePalBase {
 	 * @throws IllegalArgumentException 
 	 * @throws SecurityException 
 	 */
-	protected void putFieldsValue(DataSupport baseObj, List<Field> supportedFields,
-			ContentValues values) throws SecurityException, IllegalArgumentException, NoSuchMethodException, IllegalAccessException, InvocationTargetException {
+	protected void putFieldsValue(LitePalSupport baseObj, List<Field> supportedFields,
+                                  ContentValues values) throws SecurityException, IllegalArgumentException, NoSuchMethodException, IllegalAccessException, InvocationTargetException {
 		for (Field field : supportedFields) {
 			if (!isIdColumn(field.getName())) {
 				putFieldsValueDependsOnSaveOrUpdate(baseObj, field, values);
@@ -256,7 +259,7 @@ abstract class DataHandler extends LitePalBase {
 	 * @throws IllegalAccessException
 	 * @throws java.lang.reflect.InvocationTargetException
 	 */
-	protected void putContentValuesForSave(DataSupport baseObj, Field field, ContentValues values)
+	protected void putContentValuesForSave(LitePalSupport baseObj, Field field, ContentValues values)
 			throws SecurityException, IllegalArgumentException, NoSuchMethodException,
 			IllegalAccessException, InvocationTargetException {
         Object fieldValue = DynamicExecutor.getField(baseObj, field.getName(), baseObj.getClass());
@@ -265,6 +268,10 @@ abstract class DataHandler extends LitePalBase {
             if ("java.util.Date".equals(field.getType().getName())) {
                 Date date = (Date) fieldValue;
                 fieldValue = date.getTime();
+            }
+            Encrypt annotation = field.getAnnotation(Encrypt.class);
+            if (annotation != null && "java.lang.String".equals(field.getType().getName())) {
+                fieldValue = encryptValue(annotation.algorithm(), fieldValue);
             }
             Object[] parameters = new Object[] { changeCase(DBUtility.convertToValidColumnName(field.getName())), fieldValue };
             Class<?>[] parameterTypes = getParameterTypes(field, fieldValue, parameters);
@@ -291,7 +298,7 @@ abstract class DataHandler extends LitePalBase {
      * @throws IllegalAccessException
      * @throws java.lang.reflect.InvocationTargetException
      */
-    protected void putContentValuesForUpdate(DataSupport baseObj, Field field, ContentValues values)
+    protected void putContentValuesForUpdate(LitePalSupport baseObj, Field field, ContentValues values)
             throws SecurityException, IllegalArgumentException, NoSuchMethodException,
             IllegalAccessException, InvocationTargetException {
         Object fieldValue = getFieldValue(baseObj, field);
@@ -299,9 +306,32 @@ abstract class DataHandler extends LitePalBase {
             Date date = (Date) fieldValue;
             fieldValue = date.getTime();
         }
+        Encrypt annotation = field.getAnnotation(Encrypt.class);
+        if (annotation != null && "java.lang.String".equals(field.getType().getName())) {
+            fieldValue = encryptValue(annotation.algorithm(), fieldValue);
+        }
         Object[] parameters = new Object[] { changeCase(DBUtility.convertToValidColumnName(field.getName())), fieldValue };
         Class<?>[] parameterTypes = getParameterTypes(field, fieldValue, parameters);
         DynamicExecutor.send(values, "put", parameters, values.getClass(), parameterTypes);
+    }
+
+    /**
+     * Encrypt the field value with targeted algorithm.
+     * @param algorithm
+     *          The algorithm to encrypt value.
+     * @param fieldValue
+     *          Field value to encrypt.
+     * @return Encrypted value by targeted algorithm.
+     */
+    protected Object encryptValue(String algorithm, Object fieldValue) {
+        if (algorithm != null && fieldValue != null) {
+            if (LitePalSupport.AES.equalsIgnoreCase(algorithm)) {
+                fieldValue = CipherUtil.aesEncrypt((String) fieldValue);
+            } else if (LitePalSupport.MD5.equalsIgnoreCase(algorithm)) {
+                fieldValue = CipherUtil.md5Encrypt((String) fieldValue);
+            }
+        }
+        return fieldValue;
     }
 
 	/**
@@ -318,7 +348,7 @@ abstract class DataHandler extends LitePalBase {
 	 * @throws IllegalAccessException
 	 * @throws java.lang.reflect.InvocationTargetException
 	 */
-	protected Object getFieldValue(DataSupport dataSupport, Field field)
+	protected Object getFieldValue(LitePalSupport dataSupport, Field field)
 			throws SecurityException, NoSuchMethodException, IllegalArgumentException,
 			IllegalAccessException, InvocationTargetException {
 		if (shouldGetOrSet(dataSupport, field)) {
@@ -342,7 +372,7 @@ abstract class DataHandler extends LitePalBase {
 	 * @throws IllegalAccessException
 	 * @throws java.lang.reflect.InvocationTargetException
 	 */
-	protected void setFieldValue(DataSupport dataSupport, Field field, Object parameter)
+	protected void setFieldValue(LitePalSupport dataSupport, Field field, Object parameter)
 			throws SecurityException, NoSuchMethodException, IllegalArgumentException,
 			IllegalAccessException, InvocationTargetException {
 		if (shouldGetOrSet(dataSupport, field)) {
@@ -357,7 +387,7 @@ abstract class DataHandler extends LitePalBase {
 	 * @param baseObj
 	 *            The class of base object.
 	 */
-	protected void analyzeAssociatedModels(DataSupport baseObj, Collection<AssociationsInfo> associationInfos) {
+	protected void analyzeAssociatedModels(LitePalSupport baseObj, Collection<AssociationsInfo> associationInfos) {
 		try {
 			for (AssociationsInfo associationInfo : associationInfos) {
 				if (associationInfo.getAssociationType() == Const.Model.MANY_TO_ONE) {
@@ -369,7 +399,7 @@ abstract class DataHandler extends LitePalBase {
 				}
 			}
 		} catch (Exception e) {
-			throw new DataSupportException(e.getMessage(), e);
+			throw new LitePalSupportException(e.getMessage(), e);
 		}
 	}
 	
@@ -388,10 +418,10 @@ abstract class DataHandler extends LitePalBase {
 	 * @throws IllegalAccessException
 	 * @throws java.lang.reflect.InvocationTargetException
 	 */
-	protected DataSupport getAssociatedModel(DataSupport baseObj, AssociationsInfo associationInfo)
+	protected LitePalSupport getAssociatedModel(LitePalSupport baseObj, AssociationsInfo associationInfo)
 			throws SecurityException, IllegalArgumentException, NoSuchMethodException,
 			IllegalAccessException, InvocationTargetException {
-		return (DataSupport) getFieldValue(baseObj,
+		return (LitePalSupport) getFieldValue(baseObj,
 				associationInfo.getAssociateOtherModelFromSelf());
 	}
 
@@ -412,10 +442,10 @@ abstract class DataHandler extends LitePalBase {
 	 * @throws java.lang.reflect.InvocationTargetException
 	 */
 	@SuppressWarnings("unchecked")
-	protected Collection<DataSupport> getAssociatedModels(DataSupport baseObj,
-			AssociationsInfo associationInfo) throws SecurityException, IllegalArgumentException,
+	protected Collection<LitePalSupport> getAssociatedModels(LitePalSupport baseObj,
+                                                             AssociationsInfo associationInfo) throws SecurityException, IllegalArgumentException,
 			NoSuchMethodException, IllegalAccessException, InvocationTargetException {
-		return (Collection<DataSupport>) getFieldValue(baseObj,
+		return (Collection<LitePalSupport>) getFieldValue(baseObj,
 				associationInfo.getAssociateOtherModelFromSelf());
 	}
 
@@ -428,7 +458,7 @@ abstract class DataHandler extends LitePalBase {
 	 *            Current model to update.
 	 * @return An empty instance of baseObj.
 	 */
-	protected DataSupport getEmptyModel(DataSupport baseObj) {
+	protected LitePalSupport getEmptyModel(LitePalSupport baseObj) {
 		if (tempEmptyModel != null) {
 			return tempEmptyModel;
 		}
@@ -436,15 +466,15 @@ abstract class DataHandler extends LitePalBase {
 		try {
 			className = baseObj.getClassName();
 			Class<?> modelClass = Class.forName(className);
-			tempEmptyModel = (DataSupport) modelClass.newInstance();
+			tempEmptyModel = (LitePalSupport) modelClass.newInstance();
 			return tempEmptyModel;
 		} catch (ClassNotFoundException e) {
 			throw new DatabaseGenerateException(DatabaseGenerateException.CLASS_NOT_FOUND
 					+ className);
 		} catch (InstantiationException e) {
-			throw new DataSupportException(className + DataSupportException.INSTANTIATION_EXCEPTION, e);
+			throw new LitePalSupportException(className + LitePalSupportException.INSTANTIATION_EXCEPTION, e);
 		} catch (Exception e) {
-			throw new DataSupportException(e.getMessage(), e);
+			throw new LitePalSupportException(e.getMessage(), e);
 		}
 	}
 
@@ -548,8 +578,8 @@ abstract class DataHandler extends LitePalBase {
 	}
 
 	/**
-	 * When executing {@link #getFieldValue(DataSupport, Field)} or
-	 * {@link #setFieldValue(DataSupport, Field, Object)}, the
+	 * When executing {@link #getFieldValue(LitePalSupport, Field)} or
+	 * {@link #setFieldValue(LitePalSupport, Field, Object)}, the
 	 * dataSupport and field passed in should be protected from null value.
 	 * 
 	 * @param dataSupport
@@ -558,7 +588,7 @@ abstract class DataHandler extends LitePalBase {
 	 *            The field of generating set and get methods.
 	 * @return True if dataSupport and field are not null, false otherwise.
 	 */
-	protected boolean shouldGetOrSet(DataSupport dataSupport, Field field) {
+	protected boolean shouldGetOrSet(LitePalSupport dataSupport, Field field) {
 		return dataSupport != null && field != null;
 	}
 
@@ -571,7 +601,7 @@ abstract class DataHandler extends LitePalBase {
 	 *            The name of associated table.
 	 * @return The name of intermediate join table.
 	 */
-	protected String getIntermediateTableName(DataSupport baseObj, String associatedTableName) {
+	protected String getIntermediateTableName(LitePalSupport baseObj, String associatedTableName) {
 		return changeCase(DBUtility.getIntermediateTableName(baseObj.getTableName(),
                 associatedTableName));
 	}
@@ -603,7 +633,7 @@ abstract class DataHandler extends LitePalBase {
 			Constructor<?> constructor = findBestSuitConstructor(modelClass);
 			return constructor.newInstance(getConstructorParams(modelClass, constructor));
 		} catch (Exception e) {
-			throw new DataSupportException(e.getMessage(), e);
+			throw new LitePalSupportException(e.getMessage(), e);
 		}
 	}
 
@@ -626,7 +656,7 @@ abstract class DataHandler extends LitePalBase {
 			for (Class<?> parameterType : types) {
 				if (parameterType == modelClass) {
 					key = key + 10000; // plus the key for not using this constructor
-				} else if (parameterType.getName().equals("com.android.tools.fd.runtime.InstantReloadException")) {
+				} else if (parameterType.getName().startsWith("com.android") && parameterType.getName().endsWith("InstantReloadException")) {
                     key = key + 10000; // plus the key for not using this constructor
                 }
 			}
@@ -719,11 +749,11 @@ abstract class DataHandler extends LitePalBase {
 				if (columnIndex != -1) {
 					long associatedClassId = cursor.getLong(columnIndex);
 					try {
-						DataSupport associatedObj = (DataSupport) DataSupport.find(
+						LitePalSupport associatedObj = (LitePalSupport) LitePal.find(
 								Class.forName(associationInfo.getAssociatedClassName()),
 								associatedClassId);
 						if (associatedObj != null) {
-							setFieldValue((DataSupport) modelInstance,
+							setFieldValue((LitePalSupport) modelInstance,
 									associationInfo.getAssociateOtherModelFromSelf(), associatedObj);
 						}
 					} catch (ClassNotFoundException e) {
@@ -747,17 +777,23 @@ abstract class DataHandler extends LitePalBase {
      * @throws IllegalAccessException
      * @throws InvocationTargetException
      */
-    protected void setGenericValueToModel(DataSupport baseObj, List<Field> supportedGenericFields,
+    protected void setGenericValueToModel(LitePalSupport baseObj, List<Field> supportedGenericFields,
                                           Map<Field, GenericModel> genericModelMap) throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
         for (Field field : supportedGenericFields) {
             String tableName, genericValueColumnName, genericValueIdColumnName, getMethodName;
             Cursor cursor = null;
             GenericModel genericModel = genericModelMap.get(field);
             if (genericModel == null) {
+                String genericTypeName = getGenericTypeName(field);
+                if (baseObj.getClassName().equals(genericTypeName)) {
+                    genericValueColumnName = DBUtility.getM2MSelfRefColumnName(field);
+                    getMethodName = "getLong";
+                } else {
+                    genericValueColumnName = DBUtility.convertToValidColumnName(field.getName());
+                    getMethodName = genGetColumnMethod(field);
+                }
                 tableName = DBUtility.getGenericTableName(baseObj.getClassName(), field.getName());
-                genericValueColumnName = DBUtility.convertToValidColumnName(field.getName());
                 genericValueIdColumnName = DBUtility.getGenericValueIdColumnName(baseObj.getClassName());
-                getMethodName = genGetColumnMethod(field);
                 GenericModel model = new GenericModel();
                 model.setTableName(tableName);
                 model.setValueColumnName(genericValueColumnName);
@@ -965,8 +1001,8 @@ abstract class DataHandler extends LitePalBase {
 	 * @throws IllegalAccessException
 	 * @throws java.lang.reflect.InvocationTargetException
 	 */
-	private void putFieldsValueDependsOnSaveOrUpdate(DataSupport baseObj, Field field,
-			ContentValues values) throws SecurityException, IllegalArgumentException,
+	private void putFieldsValueDependsOnSaveOrUpdate(LitePalSupport baseObj, Field field,
+                                                     ContentValues values) throws SecurityException, IllegalArgumentException,
 			NoSuchMethodException, IllegalAccessException, InvocationTargetException {
 		if (isUpdating()) {
 			if (!isFieldWithDefaultValue(baseObj, field)) {
@@ -1000,7 +1036,7 @@ abstract class DataHandler extends LitePalBase {
 
 	/**
 	 * Analyze the passed in field. Check if this field is with default value.
-	 * The baseObj need a default constructor or {@link DataSupportException}
+	 * The baseObj need a default constructor or {@link LitePalSupportException}
 	 * will be thrown.
 	 * 
 	 * @param baseObj
@@ -1015,12 +1051,12 @@ abstract class DataHandler extends LitePalBase {
 	 * @throws NoSuchMethodException
 	 * @throws java.lang.reflect.InvocationTargetException
 	 * @throws DatabaseGenerateException
-	 * @throws DataSupportException
+	 * @throws LitePalSupportException
 	 */
-	private boolean isFieldWithDefaultValue(DataSupport baseObj, Field field)
+	private boolean isFieldWithDefaultValue(LitePalSupport baseObj, Field field)
 			throws IllegalAccessException, SecurityException, IllegalArgumentException,
 			NoSuchMethodException, InvocationTargetException {
-		DataSupport emptyModel = getEmptyModel(baseObj);
+		LitePalSupport emptyModel = getEmptyModel(baseObj);
 		Object realReturn = getFieldValue(baseObj, field);
 		Object defaultReturn = getFieldValue(emptyModel, field);
 		if (realReturn != null && defaultReturn != null) {
@@ -1242,7 +1278,7 @@ abstract class DataHandler extends LitePalBase {
 	 *            The class of base object.
 	 */
 	@SuppressWarnings({ "rawtypes", "unchecked" })
-	private void setAssociatedModel(DataSupport baseObj) {
+	private void setAssociatedModel(LitePalSupport baseObj) {
 		if (fkInOtherModel == null) {
 			return;
 		}
@@ -1264,7 +1300,7 @@ abstract class DataHandler extends LitePalBase {
 							.append(" a inner join ").append(intermediateTableName)
 							.append(" b on a.id = b.").append(associatedTableName + "_id")
 							.append(" where b.").append(tableName).append("_id = ?");
-					cursor = DataSupport.findBySQL(BaseUtility.changeCase(sql.toString()),
+					cursor = LitePal.findBySQL(BaseUtility.changeCase(sql.toString()),
 							String.valueOf(baseObj.getBaseObjId()));
 				} else {
 					String foreignKeyColumn = getForeignKeyColumnName(DBUtility
@@ -1280,7 +1316,7 @@ abstract class DataHandler extends LitePalBase {
                     SparseArray<QueryInfoCache> queryInfoCacheSparseArray = new SparseArray<QueryInfoCache>();
                     Map<Field, GenericModel> genericModelMap = new HashMap<Field, GenericModel>();
 					do {
-						DataSupport modelInstance = (DataSupport) createInstanceFromClass(Class.forName(associatedClassName));
+						LitePalSupport modelInstance = (LitePalSupport) createInstanceFromClass(Class.forName(associatedClassName));
 						giveBaseObjIdValue(modelInstance,
 								cursor.getLong(cursor.getColumnIndexOrThrow("id")));
 						setValueToModel(modelInstance, supportedFields, null, cursor, queryInfoCacheSparseArray);
@@ -1306,7 +1342,7 @@ abstract class DataHandler extends LitePalBase {
                     genericModelMap.clear();
 				}
 			} catch (Exception e) {
-				throw new DataSupportException(e.getMessage(), e);
+				throw new LitePalSupportException(e.getMessage(), e);
 			} finally {
 				if (cursor != null) {
 					cursor.close();
@@ -1347,11 +1383,43 @@ abstract class DataHandler extends LitePalBase {
                 }
                 DynamicExecutor.setField(modelInstance, field.getName(), collection, modelInstance.getClass());
             }
+            String genericTypeName = getGenericTypeName(field);
+            if ("java.lang.String".equals(genericTypeName)) {
+                Encrypt annotation = field.getAnnotation(Encrypt.class);
+                if (annotation != null) {
+                    value = decryptValue(annotation.algorithm(), value);
+                }
+            } else if (modelInstance.getClass().getName().equals(genericTypeName)) {
+                if (value instanceof Long || value instanceof Integer) {
+                    value = LitePal.find(modelInstance.getClass(), (long) value);
+                }
+            }
             collection.add(value);
         } else {
+            Encrypt annotation = field.getAnnotation(Encrypt.class);
+            if (annotation != null && "java.lang.String".equals(field.getType().getName())) {
+                value = decryptValue(annotation.algorithm(), value);
+            }
             DynamicExecutor.setField(modelInstance, field.getName(), value,
                     modelInstance.getClass());
         }
+    }
+
+    /**
+     * Decrypt the field value with targeted algorithm.
+     * @param algorithm
+     *          The algorithm to decrypt value.
+     * @param fieldValue
+     *          Field value to decrypt.
+     * @return Decrypted value by targeted algorithm.
+     */
+    protected Object decryptValue(String algorithm, Object fieldValue) {
+        if (algorithm != null && fieldValue != null) {
+            if (LitePalSupport.AES.equalsIgnoreCase(algorithm)) {
+                fieldValue = CipherUtil.aesDecrypt((String) fieldValue);
+            }
+        }
+        return fieldValue;
     }
 
     /**

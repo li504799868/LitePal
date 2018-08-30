@@ -20,8 +20,10 @@ import android.content.ContentValues;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.Build;
 
+import org.litepal.LitePal;
+import org.litepal.annotation.Encrypt;
 import org.litepal.crud.model.AssociationsInfo;
-import org.litepal.exceptions.DataSupportException;
+import org.litepal.exceptions.LitePalSupportException;
 import org.litepal.util.BaseUtility;
 import org.litepal.util.DBUtility;
 
@@ -36,14 +38,14 @@ import java.util.Set;
 import static org.litepal.util.BaseUtility.changeCase;
 
 /**
- * This is a component under DataSupport. It deals with the updating stuff as
+ * This is a component under LitePalSupport. It deals with the updating stuff as
  * primary task. Either updating specifying data with id or updating multiple
  * lines with conditions can be done here.
  * 
  * @author Tony Green
  * @since 1.1
  */
-class UpdateHandler extends DataHandler {
+public class UpdateHandler extends DataHandler {
 
 	/**
 	 * Initialize {@link org.litepal.crud.DataHandler#mDatabase} for operating database. Do not
@@ -52,7 +54,7 @@ class UpdateHandler extends DataHandler {
 	 * @param db
 	 *            The instance of SQLiteDatabase.
 	 */
-	UpdateHandler(SQLiteDatabase db) {
+    public UpdateHandler(SQLiteDatabase db) {
 		mDatabase = db;
 	}
 
@@ -72,7 +74,7 @@ class UpdateHandler extends DataHandler {
 	 * @throws IllegalArgumentException
 	 * @throws SecurityException
 	 */
-	int onUpdate(DataSupport baseObj, long id) throws SecurityException, IllegalArgumentException,
+	int onUpdate(LitePalSupport baseObj, long id) throws SecurityException, IllegalArgumentException,
 			NoSuchMethodException, IllegalAccessException, InvocationTargetException {
 		List<Field> supportedFields = getSupportedFields(baseObj.getClassName());
 		List<Field> supportedGenericFields = getSupportedGenericFields(baseObj.getClassName());
@@ -100,7 +102,7 @@ class UpdateHandler extends DataHandler {
 	 *            value that will be translated to NULL.
 	 * @return The number of rows affected.
 	 */
-	int onUpdate(Class<?> modelClass, long id, ContentValues values) {
+    public int onUpdate(Class<?> modelClass, long id, ContentValues values) {
 		if (values.size() > 0) {
             convertContentValues(values);
             return mDatabase.update(getTableName(modelClass), values, "id = " + id, null);
@@ -127,7 +129,7 @@ class UpdateHandler extends DataHandler {
 	 * @throws SecurityException
 	 */
     @SuppressWarnings("unchecked")
-	int onUpdateAll(DataSupport baseObj, String... conditions) throws SecurityException,
+	int onUpdateAll(LitePalSupport baseObj, String... conditions) throws SecurityException,
 			IllegalArgumentException, NoSuchMethodException, IllegalAccessException,
 			InvocationTargetException {
         BaseUtility.checkConditionsCorrect(conditions);
@@ -138,11 +140,11 @@ class UpdateHandler extends DataHandler {
         List<Field> supportedGenericFields = getSupportedGenericFields(baseObj.getClassName());
         long[] ids = null;
         if (!supportedGenericFields.isEmpty()) {
-            List<DataSupport> list = (List<DataSupport>) DataSupport.select("id").where(conditions).find(baseObj.getClass());
+            List<LitePalSupport> list = (List<LitePalSupport>) LitePal.select("id").where(conditions).find(baseObj.getClass());
             if (list.size() > 0) {
                 ids = new long[list.size()];
                 for (int i = 0; i < ids.length; i++) {
-                    DataSupport dataSupport = list.get(i);
+                    LitePalSupport dataSupport = list.get(i);
                     ids[i] = dataSupport.getBaseObjId();
                 }
                 updateGenericTables(baseObj, supportedGenericFields, ids);
@@ -170,7 +172,7 @@ class UpdateHandler extends DataHandler {
 	 *            value that will be translated to NULL.
 	 * @return The number of rows affected.
 	 */
-	int onUpdateAll(String tableName, ContentValues values, String... conditions) {
+    public int onUpdateAll(String tableName, ContentValues values, String... conditions) {
         BaseUtility.checkConditionsCorrect(conditions);
         if (conditions != null && conditions.length > 0) {
             conditions[0] = DBUtility.convertWhereClauseToColumnName(conditions[0]);
@@ -182,7 +184,7 @@ class UpdateHandler extends DataHandler {
 	/**
 	 * Do the action for updating multiple rows. It will check the validity of
 	 * conditions, then update rows in database. If the format of conditions is
-	 * invalid, throw DataSupportException.
+	 * invalid, throw LitePalSupportException.
 	 * 
 	 * @param tableName
 	 *            Which table to delete from.
@@ -214,10 +216,10 @@ class UpdateHandler extends DataHandler {
      * @param ids
      *          The id array of query result.
 	 */
-	private void putFieldsToDefaultValue(DataSupport baseObj, ContentValues values, long... ids) {
+	private void putFieldsToDefaultValue(LitePalSupport baseObj, ContentValues values, long... ids) {
 		String fieldName = null;
 		try {
-			DataSupport emptyModel = getEmptyModel(baseObj);
+			LitePalSupport emptyModel = getEmptyModel(baseObj);
 			Class<?> emptyModelClass = emptyModel.getClass();
 			for (String name : baseObj.getFieldsToSetToDefault()) {
 				if (!isIdColumn(name)) {
@@ -247,10 +249,10 @@ class UpdateHandler extends DataHandler {
 				}
 			}
 		} catch (NoSuchFieldException e) {
-			throw new DataSupportException(DataSupportException.noSuchFieldExceptioin(
+			throw new LitePalSupportException(LitePalSupportException.noSuchFieldExceptioin(
 					baseObj.getClassName(), fieldName), e);
 		} catch (Exception e) {
-			throw new DataSupportException(e.getMessage(), e);
+			throw new LitePalSupportException(e.getMessage(), e);
 		}
 	}
 
@@ -258,7 +260,7 @@ class UpdateHandler extends DataHandler {
 	 * Unused currently.
 	 */
 	@SuppressWarnings("unused")
-	private int doUpdateAssociations(DataSupport baseObj, long id, ContentValues values) {
+	private int doUpdateAssociations(LitePalSupport baseObj, long id, ContentValues values) {
 		int rowsAffected = 0;
 		analyzeAssociations(baseObj);
 		updateSelfTableForeignKey(baseObj, values);
@@ -274,20 +276,20 @@ class UpdateHandler extends DataHandler {
 	 * @param baseObj
 	 *            The record to update.
 	 */
-	private void analyzeAssociations(DataSupport baseObj) {
+	private void analyzeAssociations(LitePalSupport baseObj) {
 		try {
 			Collection<AssociationsInfo> associationInfos = getAssociationInfo(baseObj
 					.getClassName());
 			analyzeAssociatedModels(baseObj, associationInfos);
 		} catch (Exception e) {
-			throw new DataSupportException(e.getMessage(), e);
+			throw new LitePalSupportException(e.getMessage(), e);
 		}
 	}
 
 	/**
 	 * Unused currently.
 	 */
-	private void updateSelfTableForeignKey(DataSupport baseObj, ContentValues values) {
+	private void updateSelfTableForeignKey(LitePalSupport baseObj, ContentValues values) {
 		Map<String, Long> associatedModelMap = baseObj.getAssociatedModelsMapWithoutFK();
 		for (String associatedTable : associatedModelMap.keySet()) {
 			String fkName = getForeignKeyColumnName(associatedTable);
@@ -298,7 +300,7 @@ class UpdateHandler extends DataHandler {
 	/**
 	 * Unused currently.
 	 */
-	private int updateAssociatedTableForeignKey(DataSupport baseObj, long id) {
+	private int updateAssociatedTableForeignKey(LitePalSupport baseObj, long id) {
 		Map<String, Set<Long>> associatedModelMap = baseObj.getAssociatedModelsMapWithFK();
 		ContentValues values = new ContentValues();
 		for (String associatedTable : associatedModelMap.keySet()) {
@@ -316,7 +318,7 @@ class UpdateHandler extends DataHandler {
     /**
      * Update the generic data in generic tables. Need to delete the related generic data before
      * saving, because generic data has no id. If generic collection is null or empty, the operation
-     * will be abort. Clear generic collection data while updating should use {@link DataSupport#setToDefault(String)}
+     * will be abort. Clear generic collection data while updating should use {@link LitePalSupport#setToDefault(String)}
      * method.
      * @param baseObj
      *          Current model that is persisted.
@@ -327,10 +329,16 @@ class UpdateHandler extends DataHandler {
      * @throws IllegalAccessException
      * @throws InvocationTargetException
      */
-    private void updateGenericTables(DataSupport baseObj, List<Field> supportedGenericFields,
+    private void updateGenericTables(LitePalSupport baseObj, List<Field> supportedGenericFields,
                                      long... ids) throws IllegalAccessException, InvocationTargetException {
         if (ids != null && ids.length > 0) {
             for (Field field : supportedGenericFields) {
+                Encrypt annotation = field.getAnnotation(Encrypt.class);
+                String algorithm = null;
+                String genericTypeName = getGenericTypeName(field);
+                if (annotation != null && "java.lang.String".equals(genericTypeName)) {
+                    algorithm = annotation.algorithm();
+                }
                 field.setAccessible(true);
                 Collection<?> collection = (Collection<?>) field.get(baseObj);
                 if (collection != null && !collection.isEmpty()) {
@@ -341,9 +349,22 @@ class UpdateHandler extends DataHandler {
                         for (Object object : collection) {
                             ContentValues values = new ContentValues();
                             values.put(genericValueIdColumnName, id);
-                            Object[] parameters = new Object[] { DBUtility.convertToValidColumnName(changeCase(field.getName())), object };
-                            Class<?>[] parameterTypes = new Class[] { String.class, getGenericTypeClass(field) };
-                            DynamicExecutor.send(values, "put", parameters, values.getClass(), parameterTypes);
+                            object = encryptValue(algorithm, object);
+                            if (baseObj.getClassName().equals(genericTypeName)) {
+                                LitePalSupport dataSupport = (LitePalSupport) object;
+                                if (dataSupport == null) {
+                                    continue;
+                                }
+                                long baseObjId = dataSupport.getBaseObjId();
+                                if (baseObjId <= 0) {
+                                    continue;
+                                }
+                                values.put(DBUtility.getM2MSelfRefColumnName(field), baseObjId);
+                            } else {
+                                Object[] parameters = new Object[] { DBUtility.convertToValidColumnName(changeCase(field.getName())), object };
+                                Class<?>[] parameterTypes = new Class[] { String.class, getGenericTypeClass(field) };
+                                DynamicExecutor.send(values, "put", parameters, values.getClass(), parameterTypes);
+                            }
                             mDatabase.insert(tableName, null, values);
                         }
                     }
